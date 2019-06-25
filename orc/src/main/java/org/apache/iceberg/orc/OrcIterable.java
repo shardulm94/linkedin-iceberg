@@ -33,6 +33,7 @@ import org.apache.orc.OrcFile;
 import org.apache.orc.Reader;
 import org.apache.orc.TypeDescription;
 import org.apache.orc.storage.ql.exec.vector.VectorizedRowBatch;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * Iterable used to read rows from ORC.
@@ -43,11 +44,11 @@ class OrcIterable<T> extends CloseableGroup implements CloseableIterable<T> {
   private final InputFile file;
   private final Long start;
   private final Long length;
-  private final Function<Schema, OrcValueReader<?>> readerFunction;
+  private final Function<TypeDescription, OrcValueReader<?>> readerFunction;
 
   OrcIterable(InputFile file, Configuration config, Schema schema,
-                     Long start, Long length,
-                     Function<Schema, OrcValueReader<?>> readerFunction) {
+              Long start, Long length,
+              Function<TypeDescription, OrcValueReader<?>> readerFunction) {
     this.schema = schema;
     this.readerFunction = readerFunction;
     this.file = file;
@@ -56,13 +57,16 @@ class OrcIterable<T> extends CloseableGroup implements CloseableIterable<T> {
     this.config = config;
   }
 
+  @NotNull
   @SuppressWarnings("unchecked")
   @Override
   public Iterator<T> iterator() {
+    Reader orcFileReader = newFileReader(file, config);
+    TypeDescription readOrcSchema = ORCSchemaUtil.toOrc(schema, orcFileReader.getSchema());
+
     return new OrcIterator(
-        newOrcIterator(file, TypeConversion.toOrc(schema, new ColumnIdMap()),
-            start, length, newFileReader(file, config)),
-        readerFunction.apply(schema));
+        newOrcIterator(file, readOrcSchema, start, length, newFileReader(file, config)),
+        readerFunction.apply(readOrcSchema));
   }
 
   private static VectorizedRowBatchIterator newOrcIterator(InputFile file,
