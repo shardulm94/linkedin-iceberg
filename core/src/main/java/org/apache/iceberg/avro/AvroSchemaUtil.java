@@ -158,7 +158,8 @@ public class AvroSchemaUtil {
   }
 
   static boolean isKeyValueSchema(Schema schema) {
-    return schema.getType() == RECORD && schema.getFields().size() == 2;
+    return schema.getType() == RECORD && schema.getFields().size() == 2 &&
+        schema.getField("key") != null && schema.getField("value") != null;
   }
 
   static Schema createMap(int keyId, Schema keySchema,

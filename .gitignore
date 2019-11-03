@@ -34,3 +34,6 @@ spark/tmp/
 
 # vscode/eclipse files
 .project
+.classpath
+.settings
+bin/
