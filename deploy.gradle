@@ -69,7 +69,7 @@ subprojects {
           }
         }
 
-        groupId = 'org.apache.iceberg'
+        groupId = 'com.github.linkedin.iceberg'
         pom {
           name = 'Apache Iceberg (incubating)'
           description = 'A table format for huge analytic datasets'
