@@ -12,7 +12,6 @@ import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericData.Record;
 import org.apache.iceberg.Files;
-import org.apache.iceberg.io.FileAppender;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
