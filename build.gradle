@@ -251,6 +251,7 @@ project(':iceberg-spark') {
     }
     testCompile project(path: ':iceberg-hive', configuration: 'testArtifacts')
     testCompile project(path: ':iceberg-api', configuration: 'testArtifacts')
+    testCompile project(path: ':iceberg-core', configuration: 'testArtifacts')
 
     compileOnly "org.apache.spark:spark-avro_2.11"
   }
