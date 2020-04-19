@@ -21,8 +21,12 @@ package org.apache.iceberg.mapping;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Collectors;
+
 
 /**
  * Represents a mapping from external schema names to Iceberg type IDs.
@@ -45,11 +49,15 @@ public class NameMapping {
   private final MappedFields mapping;
   private final Map<Integer, MappedField> fieldsById;
   private final Map<String, MappedField> fieldsByName;
+  private final Map<String, MappedField> fieldsByNameLowercase;
 
   NameMapping(MappedFields mapping) {
     this.mapping = mapping;
     this.fieldsById = MappingUtil.indexById(mapping);
     this.fieldsByName = MappingUtil.indexByName(mapping);
+    this.fieldsByNameLowercase = Maps.newHashMap();
+    fieldsByName.forEach((name, field) ->
+        fieldsByNameLowercase.put(name.toLowerCase(Locale.ROOT), field));
   }
 
   public MappedField find(int id) {
@@ -61,7 +69,7 @@ public class NameMapping {
   }
 
   public MappedField find(List<String> names) {
-    return fieldsByName.get(DOT.join(names));
+    return fieldsByNameLowercase.get(DOT.join(names.stream().map(s -> s.toLowerCase(Locale.ROOT)).collect(Collectors.toList())));
   }
 
   public MappedFields asMappedFields() {

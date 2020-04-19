@@ -143,7 +143,7 @@ public class IcebergSource implements DataSourceV2, ReadSupport, WriteSupport, D
       HadoopTables tables = new HadoopTables(conf);
       return tables.load(path.get());
     } else {
-      HiveCatalog hiveCatalog = HiveCatalogs.loadCatalog(conf);
+      HiveCatalog hiveCatalog = HiveCatalogs.loadLegacyCatalog(conf);
       TableIdentifier tableIdentifier = TableIdentifier.parse(path.get());
       return hiveCatalog.loadTable(tableIdentifier);
     }
