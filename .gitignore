@@ -32,6 +32,9 @@ sdist/
 coverage.xml
 .pytest_cache/
 spark/tmp/
+spark/metastore_db
+spark/spark-warehouse
+spark/derby.log
 
 # vscode/eclipse files
 .classpath
