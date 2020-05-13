@@ -31,6 +31,7 @@ import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.functions;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.types.StructField;
@@ -69,6 +70,32 @@ public class TestSparkSchema {
   }
 
   @Test
+  public void testSparkReadSchemaCaseSensitivity() throws IOException {
+    String tableLocation = temp.newFolder("iceberg-table").toString();
+
+    HadoopTables tables = new HadoopTables(CONF);
+    PartitionSpec spec = PartitionSpec.unpartitioned();
+    tables.create(new Schema(
+        optional(1, "headerColumn", Types.StructType.of(
+            optional(2, "memberId", Types.LongType.get())
+        )),
+        optional(3, "someOtherColumn", Types.StringType.get())
+    ), spec, null, tableLocation);
+
+    Dataset<Row> originalDf = spark.range(1, 5)
+        .withColumn("headerColumn", functions.callUDF("named_struct", functions.lit("memberId"), functions.col("id")))
+        .withColumn("someOtherColumn", functions.format_string("str-%d", functions.col("id")))
+        .drop("id");
+
+    originalDf.write()
+        .format("iceberg")
+        .mode("append")
+        .save(tableLocation);
+
+    spark.read().format("iceberg").load(tableLocation).select("someothercolumn").explain();
+  }
+
+  @Test
   public void testSparkReadSchemaIsHonored() throws IOException {
     String tableLocation = temp.newFolder("iceberg-table").toString();
 
@@ -76,11 +103,10 @@ public class TestSparkSchema {
     PartitionSpec spec = PartitionSpec.unpartitioned();
     tables.create(SCHEMA, spec, null, tableLocation);
 
-    List<SimpleRecord> expectedRecords = Lists.newArrayList(
-        new SimpleRecord(1, "a")
-    );
-    Dataset<Row> originalDf = spark.createDataFrame(expectedRecords, SimpleRecord.class);
-    originalDf.select("id", "data").write()
+    Dataset<Row> originalDf = spark.range(1, 5).withColumn("someOtherColumn", functions.format_string("str-%d", functions.col("value")))
+        .withColumn("headerColumn", functions.callUDF("named_struct", functions.lit("memberId"), functions.col("value")))
+        .drop("value");
+    originalDf.write()
         .format("iceberg")
         .mode("append")
         .save(tableLocation);
