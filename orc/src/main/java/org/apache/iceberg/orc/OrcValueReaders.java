@@ -20,6 +20,7 @@
 package org.apache.iceberg.orc;
 
 import com.google.common.collect.Lists;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +58,10 @@ public class OrcValueReaders {
 
   public static OrcValueReader<byte[]> bytes() {
     return BytesReader.INSTANCE;
+  }
+
+  public static OrcValueReader<String> strings() {
+    return StringReader.INSTANCE;
   }
 
   private static class BooleanReader implements OrcValueReader<Boolean> {
@@ -131,6 +136,21 @@ public class OrcValueReaders {
 
       return Arrays.copyOfRange(
           bytesVector.vector[row], bytesVector.start[row], bytesVector.start[row] + bytesVector.length[row]);
+    }
+  }
+
+  private static class StringReader implements OrcValueReader<String> {
+    private static final StringReader INSTANCE = new StringReader();
+
+    private StringReader() {
+    }
+
+    @Override
+    public String nonNullRead(ColumnVector vector, int row) {
+      BytesColumnVector bytesVector = (BytesColumnVector) vector;
+
+      return new String(bytesVector.vector[row], bytesVector.start[row], bytesVector.length[row],
+          StandardCharsets.UTF_8);
     }
   }
 

@@ -19,29 +19,35 @@
 
 package org.apache.iceberg.orc;
 
-import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.Types;
 import org.apache.orc.TypeDescription;
-import org.apache.orc.storage.ql.exec.vector.BytesColumnVector;
 import org.apache.orc.storage.ql.exec.vector.ColumnVector;
-import org.apache.orc.storage.ql.exec.vector.LongColumnVector;
+import org.apache.orc.storage.ql.exec.vector.StructColumnVector;
 import org.apache.orc.storage.ql.exec.vector.VectorizedRowBatch;
 
 class RowFilterValueReader implements OrcRowReader<Object[]> {
 
-  private final Converter[] converters;
-  private final List<TypeDescription> columns;
+  private final OrcValueReader<?> reader;
+  private VectorizedRowBatch currentBatch;
+  private StructColumnVector currentBatchColumnVector;
   private final int[] filterSchemaToReadSchemaColumnIndex;
 
-  RowFilterValueReader(TypeDescription readSchema, TypeDescription filterSchema) {
-    columns = filterSchema.getChildren();
-    converters = buildConverters();
+  RowFilterValueReader(TypeDescription readSchema, TypeDescription filterSchema, Schema expectedFilterSchema) {
+    this.reader = OrcSchemaWithTypeVisitor.visit(expectedFilterSchema, filterSchema, new ReadBuilder());
     filterSchemaToReadSchemaColumnIndex = buildFilterSchemaToReadSchemaColumnIndex(readSchema, filterSchema);
   }
 
+  /**
+   * For every field in the filter schema, finds the index of the field in the read schema
+   */
   private int[] buildFilterSchemaToReadSchemaColumnIndex(TypeDescription readSchema, TypeDescription filterSchema) {
+    //
     int[] index = new int[filterSchema.getChildren().size()];
     List<String> filterFieldNames = filterSchema.getFieldNames();
     List<String> readSchemaFieldNames = readSchema.getFieldNames();
@@ -55,79 +61,85 @@ class RowFilterValueReader implements OrcRowReader<Object[]> {
     return index;
   }
 
+  /**
+   * Reorders and prunes the column vectors for the read schema to match the filter schema
+   */
+  private ColumnVector[] readSchemaFieldsToFilterSchemaFields(ColumnVector[] source) {
+    return Arrays.stream(filterSchemaToReadSchemaColumnIndex).mapToObj(idx -> source[idx]).toArray(ColumnVector[]::new);
+  }
+
   @Override
   public Object[] read(VectorizedRowBatch batch, int row) {
-    Object[] rowFields = new Object[converters.length];
-    for (int c = 0; c < converters.length; ++c) {
-      rowFields[c] = converters[c].convert(batch.cols[filterSchemaToReadSchemaColumnIndex[c]], row);
+    if (batch != currentBatch) {
+      currentBatch = batch;
+      currentBatchColumnVector = new StructColumnVector(batch.size, readSchemaFieldsToFilterSchemaFields(batch.cols));
     }
-    return rowFields;
+    return (Object[]) reader.read(currentBatchColumnVector, row);
   }
 
-  interface Converter<T> {
-    default T convert(ColumnVector vector, int row) {
-      int rowIndex = vector.isRepeating ? 0 : row;
-      if (!vector.noNulls && vector.isNull[rowIndex]) {
-        return null;
-      } else {
-        return convertNonNullValue(vector, rowIndex);
+  private static class ReadBuilder extends OrcSchemaWithTypeVisitor<OrcValueReader<?>> {
+
+    @Override
+    public OrcValueReader<?> record(
+        Types.StructType expected, TypeDescription record, List<String> names, List<OrcValueReader<?>> fields) {
+      return new StructReader(fields);
+    }
+
+    @Override
+    public OrcValueReader<?> list(Types.ListType iList, TypeDescription array, OrcValueReader<?> elementReader) {
+      throw new IllegalArgumentException("Unhandled type " + array);
+    }
+
+    @Override
+    public OrcValueReader<?> map(
+        Types.MapType iMap, TypeDescription map, OrcValueReader<?> keyReader, OrcValueReader<?> valueReader) {
+      throw new IllegalArgumentException("Unhandled type " + map);
+    }
+
+    @Override
+    public OrcValueReader<?> primitive(Type.PrimitiveType iPrimitive, TypeDescription primitive) {
+      switch (primitive.getCategory()) {
+        case BOOLEAN:
+          return OrcValueReaders.booleans();
+        case BYTE:
+          // Iceberg does not have a byte type. Use int
+        case SHORT:
+          // Iceberg does not have a short type. Use int
+        case DATE:
+        case INT:
+          return OrcValueReaders.ints();
+        case LONG:
+          return OrcValueReaders.longs();
+        case FLOAT:
+          return OrcValueReaders.floats();
+        case DOUBLE:
+          return OrcValueReaders.doubles();
+        case CHAR:
+        case VARCHAR:
+        case STRING:
+          return OrcValueReaders.strings();
+        default:
+          throw new IllegalArgumentException("Unhandled type " + primitive);
       }
     }
-
-    T convertNonNullValue(ColumnVector vector, int row);
   }
 
-  private Converter[] buildConverters() {
-    Converter[] newConverters = new Converter[columns.size()];
-    for (int c = 0; c < newConverters.length; ++c) {
-      newConverters[c] = buildConverter(columns.get(c));
+  private static class StructReader extends OrcValueReaders.StructReader<Object[]> {
+    private final int numFields;
+
+    protected StructReader(List<OrcValueReader<?>> readers) {
+      super(readers);
+      this.numFields = readers.size();
     }
-    return newConverters;
-  }
 
-  private static Converter buildConverter(final TypeDescription schema) {
-    switch (schema.getCategory()) {
-      case INT:
-        return new IntConverter();
-      case LONG:
-        String longAttributeValue = schema.getAttributeValue(ORCSchemaUtil.ICEBERG_LONG_TYPE_ATTRIBUTE);
-        ORCSchemaUtil.LongType longType = longAttributeValue == null ? ORCSchemaUtil.LongType.LONG :
-            ORCSchemaUtil.LongType.valueOf(longAttributeValue);
-        switch (longType) {
-          case LONG:
-            return new LongConverter();
-          default:
-            throw new IllegalStateException("Unhandled Long type found in ORC type attribute: " + longType);
-        }
-      case STRING:
-      case CHAR:
-      case VARCHAR:
-        return new StringConverter();
-      default:
-        throw new IllegalArgumentException("Unhandled type " + schema);
-    }
-  }
-
-  private static class IntConverter implements Converter<Integer> {
     @Override
-    public Integer convertNonNullValue(ColumnVector vector, int row) {
-      return (int) ((LongColumnVector) vector).vector[row];
+    protected Object[] create() {
+      return new Object[numFields];
     }
-  }
 
-  private static class LongConverter implements Converter<Long> {
     @Override
-    public Long convertNonNullValue(ColumnVector vector, int row) {
-      return ((LongColumnVector) vector).vector[row];
-    }
-  }
-
-  private static class StringConverter implements Converter<String> {
-    @Override
-    public String convertNonNullValue(ColumnVector vector, int row) {
-      BytesColumnVector bytesVector = (BytesColumnVector) vector;
-      return new String(bytesVector.vector[row], bytesVector.start[row], bytesVector.length[row],
-          StandardCharsets.UTF_8);
+    protected void set(Object[] struct, int pos, Object value) {
+      struct[pos] = value;
     }
   }
 }
