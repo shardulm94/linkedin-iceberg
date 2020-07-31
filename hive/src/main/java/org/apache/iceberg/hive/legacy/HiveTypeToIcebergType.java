@@ -77,7 +77,7 @@ public class HiveTypeToIcebergType extends HiveTypeUtil.HiveSchemaVisitor<Type> 
         DecimalTypeInfo decimalTypeInfo = (DecimalTypeInfo) primitive;
         return Types.DecimalType.of(decimalTypeInfo.precision(), decimalTypeInfo.scale());
       case TIMESTAMP:
-        return Types.TimestampType.withoutZone();
+        return Types.TimestampType.withZone();
       case DATE:
         return Types.DateType.get();
       default:

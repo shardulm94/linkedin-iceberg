@@ -28,6 +28,7 @@ import org.apache.iceberg.orc.OrcValueReaders;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.types.Types.TimestampType;
 import org.apache.orc.TypeDescription;
 import org.apache.orc.storage.ql.exec.vector.StructColumnVector;
 import org.apache.orc.storage.ql.exec.vector.VectorizedRowBatch;
@@ -99,6 +100,13 @@ public class SparkOrcReader implements OrcRowReader<InternalRow> {
           return OrcValueReaders.floats();
         case DOUBLE:
           return OrcValueReaders.doubles();
+        case TIMESTAMP:
+          TimestampType type = (TimestampType) iPrimitive;
+          if (type.shouldAdjustToUTC()) {
+            return SparkOrcValueReaders.timestampTzs();
+          } else {
+            throw new IllegalArgumentException("Unhandled type " + primitive);
+          }
         case TIMESTAMP_INSTANT:
           return SparkOrcValueReaders.timestampTzs();
         case DECIMAL:

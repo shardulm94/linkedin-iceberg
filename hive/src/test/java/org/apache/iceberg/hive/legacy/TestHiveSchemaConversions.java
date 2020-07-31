@@ -40,7 +40,7 @@ public class TestHiveSchemaConversions {
         Types.FloatType.get(),
         Types.DoubleType.get(),
         Types.DateType.get(),
-        Types.TimestampType.withoutZone(),
+        Types.TimestampType.withZone(),
         Types.StringType.get(),
         Types.BinaryType.get(),
         Types.DecimalType.of(9, 4)
