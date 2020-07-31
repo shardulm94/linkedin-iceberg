@@ -22,7 +22,6 @@ package org.apache.iceberg.spark.source;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.apache.iceberg.BaseFileScanTask;
 import org.apache.iceberg.CombinedScanTask;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataTask;
@@ -41,7 +40,7 @@ import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.orc.ORC;
 import org.apache.iceberg.orc.OrcRowFilter;
-import org.apache.iceberg.orc.OrcRowFilterableFileScanTask;
+import org.apache.iceberg.orc.OrcRowFilterUtils;
 import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
@@ -176,7 +175,7 @@ class RowDataReader extends BaseDataReader<InternalRow> {
       FileScanTask task,
       Schema readSchema,
       Map<Integer, ?> idToConstant) {
-    OrcRowFilter orcRowFilter = getOrcRowFilter(task);
+    OrcRowFilter orcRowFilter = OrcRowFilterUtils.rowFilterFromTask(task);
     if (orcRowFilter != null) {
       validateRowFilterRequirements(task, orcRowFilter);
     }
@@ -221,19 +220,6 @@ class RowDataReader extends BaseDataReader<InternalRow> {
     return UnsafeProjection.create(
         JavaConverters.asScalaBufferConverter(exprs).asScala().toSeq(),
         JavaConverters.asScalaBufferConverter(attrs).asScala().toSeq());
-  }
-
-  private OrcRowFilter getOrcRowFilter(FileScanTask task) {
-    FileScanTask fileScanTask;
-    if (task instanceof BaseFileScanTask.SplitScanTask) {
-      fileScanTask = ((BaseFileScanTask.SplitScanTask) task).underlyingFileScanTask();
-    } else {
-      fileScanTask = task;
-    }
-    if (fileScanTask instanceof OrcRowFilterableFileScanTask) {
-      return ((OrcRowFilterableFileScanTask) fileScanTask).orcRowFilter();
-    }
-    return null;
   }
 
   private void validateRowFilterRequirements(FileScanTask task, OrcRowFilter filter) {
