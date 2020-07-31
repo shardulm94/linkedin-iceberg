@@ -34,7 +34,7 @@ import org.apache.iceberg.data.Record;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.orc.ORC;
 import org.apache.iceberg.orc.ORCSchemaUtil;
-import org.apache.iceberg.orc.OrcValueWriter;
+import org.apache.iceberg.orc.OrcRowWriter;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
@@ -113,16 +113,12 @@ public class TestReadOrcFileWithoutIDs {
     Schema schema = new Schema(TypeUtil.assignFreshIds(structType, new AtomicInteger(0)::incrementAndGet)
         .asStructType().fields());
 
-    TypeDescription orcSchema = ORCSchemaUtil.convert(schema);
-    // clear attributes before providing schema to ORC writer so that file schema does not have IDs
-    clearAttributes(orcSchema);
-
     File testFile = temp.newFile();
     Assert.assertTrue("Delete should succeed", testFile.delete());
 
     List<Record> expected = RandomGenericData.generate(schema, 100, 0L);
 
-    try (OrcWriter writer = new OrcWriter(orcSchema, testFile)) {
+    try (OrcWriter writer = new OrcWriter(schema, testFile)) {
       for (Record record : expected) {
         writer.write(record);
       }
@@ -172,15 +168,20 @@ public class TestReadOrcFileWithoutIDs {
 
     private final VectorizedRowBatch batch;
     private final Writer writer;
-    private final OrcValueWriter<Record> valueWriter;
+    private final OrcRowWriter<Record> valueWriter;
     private final File outputFile;
     private boolean isClosed = false;
 
-    private OrcWriter(TypeDescription schema, File file) {
+    private OrcWriter(Schema schema, File file) {
+      TypeDescription orcSchema = ORCSchemaUtil.convert(schema);
+      // clear attributes before writing schema to file so that file schema does not have IDs
+      TypeDescription orcSchemaWithoutAttributes = orcSchema.clone();
+      clearAttributes(orcSchemaWithoutAttributes);
+
       this.outputFile = file;
-      this.batch = schema.createRowBatch(VectorizedRowBatch.DEFAULT_SIZE);
+      this.batch = orcSchemaWithoutAttributes.createRowBatch(VectorizedRowBatch.DEFAULT_SIZE);
       OrcFile.WriterOptions options = OrcFile.writerOptions(new Configuration()).useUTCTimestamp(true);
-      options.setSchema(schema);
+      options.setSchema(orcSchemaWithoutAttributes);
 
       final Path locPath = new Path(file.getPath());
       try {
@@ -188,7 +189,7 @@ public class TestReadOrcFileWithoutIDs {
       } catch (IOException e) {
         throw new RuntimeException("Can't create file " + locPath, e);
       }
-      this.valueWriter = GenericOrcWriter.buildWriter(schema);
+      this.valueWriter = GenericOrcWriter.buildWriter(schema, orcSchema);
     }
 
     void write(Record record) {
