@@ -59,6 +59,9 @@ allprojects {
     maven { url  "http://palantir.bintray.com/releases" }
     mavenCentral()
     mavenLocal()
+    maven {
+      url uri('/Users/smahadik/local-repo')
+    }
   }
 }
 
@@ -555,7 +558,7 @@ project(':iceberg-hive-runtime') {
       exclude group: 'com.github.stephenc.findbugs'
       exclude group: 'commons-pool'
       exclude group: 'javax.annotation'
-      exclude group: 'javax.xml.bind'      
+      exclude group: 'javax.xml.bind'
       exclude group: 'org.apache.commons'
       exclude group: 'org.slf4j'
       exclude group: 'org.xerial.snappy'
@@ -568,7 +571,7 @@ project(':iceberg-hive-runtime') {
       compile project(':iceberg-hive3')
     }
   }
-  
+
   shadowJar {
     configurations = [project.configurations.compile]
 
@@ -582,7 +585,7 @@ project(':iceberg-hive-runtime') {
 
     // Relocate dependencies to avoid conflicts
     relocate 'org.apache.avro', 'org.apache.iceberg.shaded.org.apache.avro'
-    relocate 'org.apache.parquet', 'org.apache.iceberg.shaded.org.apache.parquet'  
+    relocate 'org.apache.parquet', 'org.apache.iceberg.shaded.org.apache.parquet'
     relocate 'com.google', 'org.apache.iceberg.shaded.com.google'
     relocate 'com.fasterxml', 'org.apache.iceberg.shaded.com.fasterxml'
     relocate 'com.github.benmanes', 'org.apache.iceberg.shaded.com.github.benmanes'
@@ -836,6 +839,7 @@ if (jdkVersion == '8') {
   }
 }
 
+
 project(':iceberg-spark3') {
   dependencies {
     compile project(':iceberg-api')
@@ -847,6 +851,25 @@ project(':iceberg-spark3') {
     compile project(':iceberg-arrow')
     compile project(':iceberg-hive-metastore')
     compile project(':iceberg-spark')
+//    compile("com.linkedin.coral:coral-spark") {
+//      exclude group: "org.slf4j"
+//      exclude group: "commons-beanutils", module: 'commons-beanutils-core'
+//    }
+//    compile("com.linkedin.coral:coral-hive") {
+//      exclude group: "org.slf4j"
+//      exclude group: "commons-beanutils", module: 'commons-beanutils-core'
+//    }
+//    compile("com.linkedin.coral:coral-schema") {
+//      exclude group: "org.slf4j"
+//      exclude group: "commons-beanutils", module: 'commons-beanutils-core'
+//    }
+//    compile("com.linkedin.coral-calcite:coral-calcite") {
+//      exclude group: "org.slf4j"
+//      exclude group: "commons-beanutils", module: 'commons-beanutils-core'
+//    }
+    compile(group: 'com.linkedin.dali-coral-spark', name: 'dali-coral-spark-impl', classifier: 'all') {
+      transitive = false
+    }
 
     compileOnly "org.apache.avro:avro"
     compileOnly("org.apache.spark:spark-hive_2.12") {

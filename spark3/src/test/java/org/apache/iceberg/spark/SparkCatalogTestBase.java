@@ -61,17 +61,17 @@ public abstract class SparkCatalogTestBase extends SparkTestBase {
             "type", "hive",
             "default-namespace", "default"
          ) },
-        { "testhadoop", SparkCatalog.class.getName(),
-          ImmutableMap.of(
-            "type", "hadoop"
-        ) },
-        { "spark_catalog", SparkSessionCatalog.class.getName(),
-          ImmutableMap.of(
-            "type", "hive",
-            "default-namespace", "default",
-            "parquet-enabled", "true",
-            "cache-enabled", "false" // Spark will delete tables using v1, leaving the cache out of sync
-        ) }
+//        { "testhadoop", SparkCatalog.class.getName(),
+//          ImmutableMap.of(
+//            "type", "hadoop"
+//        ) },
+//        { "spark_catalog", SparkSessionCatalog.class.getName(),
+//          ImmutableMap.of(
+//            "type", "hive",
+//            "default-namespace", "default",
+//            "parquet-enabled", "true",
+//            "cache-enabled", "false" // Spark will delete tables using v1, leaving the cache out of sync
+//        ) }
     };
   }
 

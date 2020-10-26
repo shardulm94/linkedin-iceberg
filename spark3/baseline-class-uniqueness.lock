@@ -1,0 +1,18 @@
+# Danger! Multiple jars contain identically named classes. This may cause different behaviour depending on classpath ordering.
+# Run ./gradlew checkClassUniqueness --write-locks to update this file
+
+## runtimeClasspath
+[commons-beanutils:commons-beanutils, commons-collections:commons-collections]
+  - org.apache.commons.collections.ArrayStack
+  - org.apache.commons.collections.BufferUnderflowException
+  - org.apache.commons.collections.FastHashMap
+  - org.apache.commons.collections.FastHashMap$1
+  - org.apache.commons.collections.FastHashMap$CollectionView
+  - org.apache.commons.collections.FastHashMap$CollectionView$CollectionViewIterator
+  - org.apache.commons.collections.FastHashMap$EntrySet
+  - org.apache.commons.collections.FastHashMap$KeySet
+  - org.apache.commons.collections.FastHashMap$Values
+[org.apache.hadoop:hadoop-yarn-api, org.apache.hadoop:hadoop-yarn-common]
+  - org.apache.hadoop.yarn.factories.package-info
+  - org.apache.hadoop.yarn.factory.providers.package-info
+  - org.apache.hadoop.yarn.util.package-info

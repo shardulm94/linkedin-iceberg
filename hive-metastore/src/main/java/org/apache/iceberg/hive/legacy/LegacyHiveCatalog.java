@@ -45,6 +45,10 @@ public class LegacyHiveCatalog extends HiveCatalog {
     super(conf);
   }
 
+  public LegacyHiveCatalog(String name, String uri, int clientPoolSize, Configuration conf) {
+    super(name, uri, clientPoolSize, conf);
+  }
+
   @Override
   @SuppressWarnings("CatchBlockLogException")
   public Table loadTable(TableIdentifier identifier) {

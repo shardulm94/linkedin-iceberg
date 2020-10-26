@@ -19,14 +19,28 @@
 
 package org.apache.iceberg.spark;
 
+import com.linkedin.coral.hive.hive2rel.HiveMscAdapter;
+import com.linkedin.coral.hive.hive2rel.HiveToRelConverter;
+import com.linkedin.coral.schema.avro.ViewToAvroSchemaConverter;
+import com.linkedin.coral.spark.CoralSpark;
+import com.linkedin.coral.spark.containers.SparkUDFInfo;
+import java.net.URI;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
+import org.apache.hadoop.hive.metastore.IMetaStoreClient;
+import org.apache.hadoop.hive.metastore.api.MetaException;
+import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.iceberg.CachingCatalog;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
+import org.apache.iceberg.avro.AvroSchemaUtil;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
@@ -34,6 +48,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.hive.HiveCatalog;
+import org.apache.iceberg.hive.legacy.LegacyHiveCatalog;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.base.Splitter;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
@@ -41,13 +56,17 @@ import org.apache.iceberg.relocated.com.google.common.collect.ImmutableSet;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.relocated.com.google.common.collect.Sets;
+import org.apache.iceberg.spark.source.CoralSparkView;
+import org.apache.iceberg.spark.source.CoralSparkView.UDF;
 import org.apache.iceberg.spark.source.SparkTable;
 import org.apache.iceberg.spark.source.StagedSparkTable;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.catalyst.analysis.NamespaceAlreadyExistsException;
 import org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException;
 import org.apache.spark.sql.catalyst.analysis.NoSuchTableException;
+import org.apache.spark.sql.catalyst.analysis.NoSuchViewException;
 import org.apache.spark.sql.catalyst.analysis.TableAlreadyExistsException;
+import org.apache.spark.sql.catalyst.analysis.ViewAlreadyExistsException;
 import org.apache.spark.sql.connector.catalog.Identifier;
 import org.apache.spark.sql.connector.catalog.NamespaceChange;
 import org.apache.spark.sql.connector.catalog.StagedTable;
@@ -57,9 +76,17 @@ import org.apache.spark.sql.connector.catalog.TableChange;
 import org.apache.spark.sql.connector.catalog.TableChange.ColumnChange;
 import org.apache.spark.sql.connector.catalog.TableChange.RemoveProperty;
 import org.apache.spark.sql.connector.catalog.TableChange.SetProperty;
+import org.apache.spark.sql.connector.catalog.View;
+import org.apache.spark.sql.connector.catalog.ViewCatalog;
+import org.apache.spark.sql.connector.catalog.ViewChange;
 import org.apache.spark.sql.connector.expressions.Transform;
+import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
+import org.apache.thrift.TException;
+
+
 
 /**
  * A Spark TableCatalog implementation that wraps an Iceberg {@link Catalog}.
@@ -75,14 +102,17 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap;
  * To use a custom catalog that is not a Hive or Hadoop catalog, extend this class and override
  * {@link #buildIcebergCatalog(String, CaseInsensitiveStringMap)}.
  */
-public class SparkCatalog implements StagingTableCatalog, org.apache.spark.sql.connector.catalog.SupportsNamespaces {
+public class SparkCatalog implements StagingTableCatalog, org.apache.spark.sql.connector.catalog.SupportsNamespaces,
+                                     ViewCatalog {
   private static final Set<String> DEFAULT_NS_KEYS = ImmutableSet.of(TableCatalog.PROP_OWNER);
 
   private String catalogName = null;
   private Catalog icebergCatalog = null;
+  private Catalog hiveCatalog = null;
   private boolean cacheEnabled = true;
   private SupportsNamespaces asNamespaceCatalog = null;
   private String[] defaultNamespace = null;
+  private IMetaStoreClient hiveClient = null;
 
   /**
    * Build an Iceberg {@link Catalog} to be used by this Spark catalog adapter.
@@ -109,6 +139,13 @@ public class SparkCatalog implements StagingTableCatalog, org.apache.spark.sql.c
     }
   }
 
+  protected Catalog buildHiveCatalog(String name, CaseInsensitiveStringMap options) {
+    Configuration conf = SparkSession.active().sessionState().newHadoopConf();
+    int clientPoolSize = options.getInt("clients", 2);
+    String uri = options.get("uri");
+    return new LegacyHiveCatalog(name, uri, clientPoolSize, conf);
+  }
+
   /**
    * Build an Iceberg {@link TableIdentifier} for the given Spark identifier.
    *
@@ -122,10 +159,23 @@ public class SparkCatalog implements StagingTableCatalog, org.apache.spark.sql.c
   @Override
   public SparkTable loadTable(Identifier ident) throws NoSuchTableException {
     try {
-      Table icebergTable = icebergCatalog.loadTable(buildIdentifier(ident));
-      return new SparkTable(icebergTable, !cacheEnabled);
+      Table hiveTable = hiveCatalog.loadTable(buildIdentifier(ident));
+      String tableType = hiveTable.properties().getOrDefault("table_type", "");
+      Table finalTable;
+      if ("iceberg".equals(tableType.toLowerCase())) {
+        finalTable = icebergCatalog.loadTable(buildIdentifier(ident));
+      } else {
+        finalTable = hiveTable;
+      }
+      return new SparkTable(finalTable, !cacheEnabled);
     } catch (org.apache.iceberg.exceptions.NoSuchTableException e) {
       throw new NoSuchTableException(ident);
+    } catch (RuntimeException e) {
+      if (e.getCause() != null && e.getCause().getClass().equals(NoSuchObjectException.class)) {
+        throw new NoSuchTableException(ident);
+      } else {
+        throw e;
+      }
     }
   }
 
@@ -388,6 +438,7 @@ public class SparkCatalog implements StagingTableCatalog, org.apache.spark.sql.c
 
     this.catalogName = name;
     this.icebergCatalog = cacheEnabled ? CachingCatalog.wrap(catalog) : catalog;
+    this.hiveCatalog = buildHiveCatalog(name, options);
     if (catalog instanceof SupportsNamespaces) {
       this.asNamespaceCatalog = (SupportsNamespaces) catalog;
       if (options.containsKey("default-namespace")) {
@@ -395,6 +446,11 @@ public class SparkCatalog implements StagingTableCatalog, org.apache.spark.sql.c
             .splitToList(options.get("default-namespace"))
             .toArray(new String[0]);
       }
+    }
+    try {
+      this.hiveClient = new HiveMetaStoreClient(new HiveConf());
+    } catch (MetaException e) {
+      throw new RuntimeException(e);
     }
   }
 
@@ -439,5 +495,83 @@ public class SparkCatalog implements StagingTableCatalog, org.apache.spark.sql.c
     }
 
     transaction.commitTransaction();
+  }
+
+  @Override
+  public Identifier[] listViews(String... namespace) throws NoSuchNamespaceException {
+    return new Identifier[0];
+  }
+
+  @Override
+  public View loadView(Identifier ident) throws NoSuchViewException {
+    String db = ident.namespace()[0];
+    String tbl = ident.name();
+    try {
+      org.apache.hadoop.hive.metastore.api.Table hiveTable = hiveClient.getTable(db, tbl);
+      if (!hiveTable.getTableType().toUpperCase().equals("VIRTUAL_VIEW")) {
+        throw new NoSuchViewException(ident);
+      }
+    } catch (NoSuchObjectException e) {
+      throw new NoSuchViewException(ident);
+    } catch (TException e) {
+      throw new RuntimeException(e);
+    }
+    CoralSpark coralSpark = CoralSpark.create(
+        HiveToRelConverter.create(new HiveMscAdapter(hiveClient)).convertView(db, tbl)
+    );
+//    StructType coralSchema =  inferViewSchemaFromBaseTables(db, tbl);
+    StructType coralSchema = DataTypes.createStructType(new StructField[]{
+        DataTypes.createStructField("intCol", DataTypes.IntegerType, false),
+        DataTypes.createStructField("structCol", DataTypes.createStructType(new StructField[]{
+            DataTypes.createStructField("doubleCol", DataTypes.DoubleType, false),
+            DataTypes.createStructField("stringCol", DataTypes.StringType, false),
+        }), false)
+    });
+    List<SparkUDFInfo> coralSparkUdfInfoList = coralSpark.getSparkUDFInfoList();
+    return new CoralSparkView(
+        coralSpark.getSparkSql(),
+        coralSparkUdfInfoList.stream()
+            .flatMap(udf -> udf.getArtifactoryUrls().stream())
+            .map(java.net.URI::toString).distinct()
+            .collect(Collectors.toList()),
+        coralSparkUdfInfoList.stream().map(udf ->
+            new UDF(udf.getFunctionName(), udf.getUdfType().name(), udf.getClassName()))
+            .collect(Collectors.toList()),
+        coralSchema,
+        name(),
+        ident.namespace()
+    );
+  }
+
+  private StructType inferViewSchemaFromBaseTables(String db, String table) {
+    HiveMscAdapter hiveMscAdapter = new HiveMscAdapter(hiveClient);
+    ViewToAvroSchemaConverter viewToSchemaConverter = ViewToAvroSchemaConverter.create(hiveMscAdapter);
+    org.apache.avro.Schema schema = viewToSchemaConverter.toAvroSchema(db, table);
+    // NOTE: Explicitly make the struct nullable, else Spark Analyzer fails as it gets
+    // nullable fields from base table relations and CAST from nullable to non-nullable fails
+    // struct.asNullable <- DISABLE FOR NOW, see if it works without this in Spark 3
+    return SparkSchemaUtil.convert(AvroSchemaUtil.toIceberg(schema));
+  }
+
+  @Override
+  public void createView(Identifier ident, String sql, StructType schema, String[] catalogAndNamespace,
+      Map<String, String> properties) throws ViewAlreadyExistsException, NoSuchNamespaceException {
+
+  }
+
+  @Override
+  public void alterView(Identifier ident, ViewChange... changes) throws NoSuchViewException, IllegalArgumentException {
+
+  }
+
+  @Override
+  public boolean dropView(Identifier ident) {
+    return false;
+  }
+
+  @Override
+  public void renameView(Identifier oldIdent, Identifier newIdent)
+      throws NoSuchViewException, ViewAlreadyExistsException {
+
   }
 }
