@@ -33,10 +33,7 @@ public final class HiveCatalogs {
   }
 
   private static final Cache<String, HiveMetadataPreservingCatalog> HIVE_METADATA_PRESERVING_CATALOG_CACHE =
-      Caffeine.newBuilder()
-          .expireAfterAccess(10, TimeUnit.MINUTES)
-          .removalListener((RemovalListener<String, HiveCatalog>) (uri, catalog, cause) -> catalog.close())
-          .build();
+      Caffeine.newBuilder().build();
 
   private static final Cache<String, HiveCatalog> LEGACY_CATALOG_CACHE = Caffeine.newBuilder()
       .expireAfterAccess(10, TimeUnit.MINUTES)
