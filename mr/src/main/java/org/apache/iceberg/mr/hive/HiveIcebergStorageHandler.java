@@ -94,6 +94,7 @@ public class HiveIcebergStorageHandler implements HiveStoragePredicateHandler, H
     // save schema into table props as well to avoid repeatedly hitting the HMS during serde initializations
     // this is an exception to the interface documentation, but it's a safe operation to add this property
     props.put(InputFormatConfig.TABLE_SCHEMA, schemaJson);
+    map.put(HiveIcebergInputFormat.SPLIT_LOCATION, props.getProperty(Catalogs.LOCATION));
   }
 
   @Override
@@ -114,7 +115,11 @@ public class HiveIcebergStorageHandler implements HiveStoragePredicateHandler, H
 
   @Override
   public void configureJobConf(TableDesc tableDesc, JobConf jobConf) {
-
+    HiveIcebergConfigUtil.copySchemaToConf(
+        () -> Catalogs.loadTable(conf, tableDesc.getProperties()).schema(),
+        jobConf,
+        tableDesc.getProperties()
+    );
   }
 
   @Override

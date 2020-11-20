@@ -79,6 +79,7 @@ public class TestHiveIcebergStorageHandlerWithEngine {
         // include Tez tests only for Java 8
         if (javaVersion.equals("1.8") || "mr".equals(engine)) {
           testParams.add(new Object[] {fileFormat, engine, TestTables.TestTableType.HIVE_CATALOG});
+          testParams.add(new Object[] {fileFormat, engine, TestTables.TestTableType.HIVE_CATALOG_UNQUALIFIED_URI});
         }
       }
     }
