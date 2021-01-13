@@ -20,12 +20,14 @@
 package org.apache.iceberg.orc;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.Schema;
@@ -34,11 +36,14 @@ import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.hadoop.HadoopInputFile;
 import org.apache.iceberg.hadoop.HadoopOutputFile;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.DelegatingInputStream;
 import org.apache.iceberg.io.FileAppender;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.io.SeekableInputStream;
 import org.apache.iceberg.mapping.NameMapping;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
+import org.apache.iceberg.util.ExceptionUtil;
 import org.apache.orc.OrcConf;
 import org.apache.orc.OrcFile;
 import org.apache.orc.OrcFile.ReaderOptions;
@@ -233,6 +238,30 @@ public class ORC {
     ReaderOptions readerOptions = OrcFile.readerOptions(config).useUTCTimestamp(true);
     if (file instanceof HadoopInputFile) {
       readerOptions.filesystem(((HadoopInputFile) file).getFileSystem());
+    } else {
+      StreamWrapperFileSystem fs = null;
+      InputStream stream = null;
+      try {
+        stream = file.newStream();
+        if (stream instanceof DelegatingInputStream) {
+          InputStream delegate = ((DelegatingInputStream) stream).getDelegate();
+          if (delegate instanceof FSDataInputStream) {
+            fs = new StreamWrapperFileSystem((FSDataInputStream) delegate, new Path(file.location()),
+                file.getLength(), new Configuration());
+          }
+        }
+      } finally {
+        if (fs == null && stream != null) {
+          try {
+            stream.close();
+          } catch (IOException ioe) {
+            throw new RuntimeIOException(ioe, "Failed to close stream for: %s", file.location());
+          }
+        }
+      }
+      if (fs != null) {
+        readerOptions.filesystem(fs);
+      }
     }
     return newFileReader(file.location(), readerOptions);
   }
