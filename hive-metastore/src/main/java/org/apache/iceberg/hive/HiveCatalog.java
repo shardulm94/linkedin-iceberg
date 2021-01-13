@@ -168,6 +168,10 @@ public class HiveCatalog extends BaseMetastoreCatalog implements Closeable, Supp
     this.fileIO = fileIOImpl == null ? new HadoopFileIO(conf) : CatalogUtil.loadFileIO(fileIOImpl, properties, conf);
   }
 
+  protected FileIO io() {
+    return fileIO;
+  }
+
   protected HiveClientPool clientPool() {
     return clients;
   }

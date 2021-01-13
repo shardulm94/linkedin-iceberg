@@ -41,6 +41,10 @@ public class LegacyHiveCatalog extends HiveCatalog {
 
   private static final Logger LOG = LoggerFactory.getLogger(LegacyHiveCatalog.class);
 
+  public LegacyHiveCatalog() {
+    super();
+  }
+
   public LegacyHiveCatalog(Configuration conf) {
     super(conf);
   }
@@ -67,7 +71,7 @@ public class LegacyHiveCatalog extends HiveCatalog {
   public TableOperations newTableOps(TableIdentifier tableIdentifier) {
     String dbName = tableIdentifier.namespace().level(0);
     String tableName = tableIdentifier.name();
-    return new LegacyHiveTableOperations(conf(), clientPool(), dbName, tableName);
+    return new LegacyHiveTableOperations(conf(), clientPool(), io(), dbName, tableName);
   }
 
   @Override

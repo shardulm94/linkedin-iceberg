@@ -66,4 +66,22 @@ public interface FileIO extends Serializable {
    */
   default void initialize(Map<String, String> properties) {
   }
+
+  /**
+   * Checks whether the path exists.
+   *
+   * @return true if the path exists, false otherwise
+   */
+  default boolean exists(String path) {
+    throw new UnsupportedOperationException("Existence check not supported by " + this.getClass().getName());
+  }
+
+  /**
+   * Lists a directory represented by a path.
+   *
+   * @return an iterable of {@link InputFile}s present in the directory
+   */
+  default Iterable<InputFile> listFiles(String path) {
+    throw new UnsupportedOperationException("Directory listing not supported by " + this.getClass().getName());
+  }
 }

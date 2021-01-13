@@ -23,7 +23,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.DataFile;
@@ -39,6 +38,7 @@ import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.hive.HiveClientPool;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
@@ -46,7 +46,6 @@ import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
 import org.apache.thrift.TException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 
 public class LegacyHiveTableOperations extends BaseMetastoreTableOperations {
 
@@ -56,22 +55,19 @@ public class LegacyHiveTableOperations extends BaseMetastoreTableOperations {
   private final String databaseName;
   private final String tableName;
   private final Configuration conf;
+  private final FileIO fileIO;
 
-  private FileIO fileIO;
-
-  protected LegacyHiveTableOperations(Configuration conf, HiveClientPool metaClients, String database, String table) {
+  protected LegacyHiveTableOperations(Configuration conf, HiveClientPool metaClients, FileIO fileIO, String database,
+      String table) {
     this.conf = conf;
     this.metaClients = metaClients;
+    this.fileIO = fileIO;
     this.databaseName = database;
     this.tableName = table;
   }
 
   @Override
   public FileIO io() {
-    if (fileIO == null) {
-      fileIO = new HadoopFileIO(conf);
-    }
-
     return fileIO;
   }
 
@@ -115,9 +111,9 @@ public class LegacyHiveTableOperations extends BaseMetastoreTableOperations {
     Iterable<Iterable<DataFile>> filesPerDirectory = Iterables.transform(
         matchingDirectories,
         directory -> {
-          List<FileStatus> files;
-          if (FileSystemUtils.exists(directory.location(), conf)) {
-            files = FileSystemUtils.listFiles(directory.location(), conf);
+          Iterable<InputFile> files;
+          if (io().exists(directory.location())) {
+            files = io().listFiles(directory.location());
           } else {
             LOG.warn("Cannot find directory: {}. Skipping.", directory.location());
             files = ImmutableList.of();
@@ -189,12 +185,12 @@ public class LegacyHiveTableOperations extends BaseMetastoreTableOperations {
     }
   }
 
-  private static DataFile createDataFile(FileStatus fileStatus, PartitionSpec partitionSpec, StructLike partitionData,
+  private static DataFile createDataFile(InputFile file, PartitionSpec partitionSpec, StructLike partitionData,
       FileFormat format) {
     DataFiles.Builder builder = DataFiles.builder(partitionSpec)
-        .withPath(fileStatus.getPath().toString())
+        .withPath(file.location())
         .withFormat(format)
-        .withFileSizeInBytes(fileStatus.getLen())
+        .withFileSizeInBytes(file.getLength())
         .withMetrics(new Metrics(10000L, null, null, null, null, null));
 
     if (partitionSpec.fields().isEmpty()) {

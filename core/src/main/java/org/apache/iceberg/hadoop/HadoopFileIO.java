@@ -20,13 +20,17 @@
 package org.apache.iceberg.hadoop;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.exceptions.RuntimeIOException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
 import org.apache.iceberg.util.SerializableSupplier;
 
 public class HadoopFileIO implements FileIO {
@@ -63,6 +67,31 @@ public class HadoopFileIO implements FileIO {
       fs.delete(toDelete, false /* not recursive */);
     } catch (IOException e) {
       throw new RuntimeIOException(e, "Failed to delete file: %s", path);
+    }
+  }
+
+  @Override
+  public boolean exists(String path) {
+    Path toCheck = new Path(path);
+    FileSystem fs = Util.getFs(toCheck, hadoopConf.get());
+    try {
+      return fs.exists(toCheck);
+    } catch (IOException e) {
+      throw new RuntimeIOException(e, "Failed to check existence of path: %s", path);
+    }
+  }
+
+  @Override
+  public Iterable<InputFile> listFiles(String path) {
+    Path directoryPath = new Path(path);
+    try {
+      FileSystem fs = Util.getFs(directoryPath, hadoopConf.get());
+      List<FileStatus> stats = Arrays.asList(fs.listStatus(directoryPath, HiddenPathFilter.get()));
+      return Iterables.transform(
+          Iterables.filter(stats, FileStatus::isFile),
+          stat -> HadoopInputFile.fromStatus(stat, fs));
+    } catch (IOException e) {
+      throw new RuntimeIOException(e, "Error listing files for directory: %s", directoryPath);
     }
   }
 }
